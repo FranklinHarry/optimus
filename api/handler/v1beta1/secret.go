@@ -32,8 +32,8 @@ func (sv *RuntimeServiceServer) RegisterSecret(ctx context.Context, req *pb.Regi
 		}
 	}
 
-	secretRepo := sv.secretRepoFactory.New(projSpec, namespaceSpec)
-	if err := secretRepo.Save(ctx, models.ProjectSecretItem{
+	secretRepo := sv.secretRepoFactory.New(projSpec)
+	if err := secretRepo.Save(ctx, namespaceSpec, models.ProjectSecretItem{
 		Name:  req.GetSecretName(),
 		Value: base64Decoded,
 	}); err != nil {
@@ -66,8 +66,8 @@ func (sv *RuntimeServiceServer) UpdateSecret(ctx context.Context, req *pb.Update
 		}
 	}
 
-	secretRepo := sv.secretRepoFactory.New(projSpec, namespaceSpec)
-	if err := secretRepo.Update(ctx, models.ProjectSecretItem{
+	secretRepo := sv.secretRepoFactory.New(projSpec)
+	if err := secretRepo.Update(ctx, namespaceSpec, models.ProjectSecretItem{
 		Name:  req.GetSecretName(),
 		Value: base64Decoded,
 	}); err != nil {
@@ -86,10 +86,7 @@ func (sv *RuntimeServiceServer) ListSecrets(ctx context.Context, req *pb.ListSec
 		return nil, status.Errorf(codes.NotFound, "%s: project %s not found", err.Error(), req.GetProjectName())
 	}
 
-	// Read namespace from request
-	namespaceSpec := models.NamespaceSpec{}
-
-	secretRepo := sv.secretRepoFactory.New(projSpec, namespaceSpec)
+	secretRepo := sv.secretRepoFactory.New(projSpec)
 	secrets, err := secretRepo.GetAll(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "%s: failed to list secrets", err.Error())

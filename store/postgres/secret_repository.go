@@ -99,10 +99,8 @@ func (p Secret) ToSecretItemInfo(hash models.ApplicationKey) (models.SecretItemI
 		return models.SecretItemInfo{}, err
 	}
 
-	digest, err := cryptopasta.HashPassword(cleartext)
-	if err != nil {
-		return models.SecretItemInfo{}, err
-	}
+	digest := cryptopasta.Hash("secret", cleartext)
+	base64encoded := base64.StdEncoding.EncodeToString(digest)
 
 	secretType := models.SecretTypeSystemDefined
 	if p.Type == models.SecretTypeUserDefined.String() {
@@ -112,7 +110,7 @@ func (p Secret) ToSecretItemInfo(hash models.ApplicationKey) (models.SecretItemI
 	return models.SecretItemInfo{
 		ID:        p.ID,
 		Name:      p.Name,
-		Digest:    string(digest),
+		Digest:    base64encoded,
 		Type:      secretType,
 		Namespace: p.Namespace.Name,
 		UpdatedAt: p.UpdatedAt,
@@ -120,15 +118,14 @@ func (p Secret) ToSecretItemInfo(hash models.ApplicationKey) (models.SecretItemI
 }
 
 type secretRepository struct {
-	db        *gorm.DB
-	project   models.ProjectSpec
-	namespace models.NamespaceSpec
+	db      *gorm.DB
+	project models.ProjectSpec
 
 	hash models.ApplicationKey
 }
 
-func (repo *secretRepository) Insert(ctx context.Context, resource models.ProjectSecretItem) error {
-	p, err := Secret{}.FromSpec(resource, repo.project, repo.namespace, repo.hash)
+func (repo *secretRepository) Insert(ctx context.Context, namespace models.NamespaceSpec, resource models.ProjectSecretItem) error {
+	p, err := Secret{}.FromSpec(resource, repo.project, namespace, repo.hash)
 	if err != nil {
 		return err
 	}
@@ -138,17 +135,17 @@ func (repo *secretRepository) Insert(ctx context.Context, resource models.Projec
 	return repo.db.WithContext(ctx).Save(&p).Error
 }
 
-func (repo *secretRepository) Save(ctx context.Context, spec models.ProjectSecretItem) error {
+func (repo *secretRepository) Save(ctx context.Context, namespace models.NamespaceSpec, spec models.ProjectSecretItem) error {
 	_, err := repo.GetByName(ctx, spec.Name)
 	if errors.Is(err, store.ErrResourceNotFound) {
-		return repo.Insert(ctx, spec)
+		return repo.Insert(ctx, namespace, spec)
 	} else if err != nil {
 		return errors.Wrap(err, "unable to find secret by name")
 	}
 	return errors.New("secret already exist")
 }
 
-func (repo *secretRepository) Update(ctx context.Context, spec models.ProjectSecretItem) error {
+func (repo *secretRepository) Update(ctx context.Context, namespace models.NamespaceSpec, spec models.ProjectSecretItem) error {
 	existingResource, err := repo.GetByName(ctx, spec.Name)
 	if errors.Is(err, store.ErrResourceNotFound) {
 		return errors.New(fmt.Sprintf("secret %s does not exist", spec.Name))
@@ -156,7 +153,7 @@ func (repo *secretRepository) Update(ctx context.Context, spec models.ProjectSec
 		return errors.Wrap(err, "unable to find secret by name")
 	}
 
-	resource, err := Secret{}.FromSpec(spec, repo.project, repo.namespace, repo.hash)
+	resource, err := Secret{}.FromSpec(spec, repo.project, namespace, repo.hash)
 	if err != nil {
 		return err
 	}
@@ -191,7 +188,9 @@ func (repo *secretRepository) GetByID(ctx context.Context, id uuid.UUID) (models
 func (repo *secretRepository) GetAll(ctx context.Context) ([]models.SecretItemInfo, error) {
 	var secretItems []models.SecretItemInfo
 	var resources []Secret
-	if err := repo.db.WithContext(ctx).Where("project_id = ?", repo.project.ID).Find(&resources).Error; err != nil {
+	if err := repo.db.WithContext(ctx).Preload("Namespace").
+		Joins("JOIN namespace ON secret.namespace_id = namespace.id").
+		Where("secret.project_id = ?", repo.project.ID).Find(&resources).Error; err != nil {
 		return secretItems, err
 	}
 	for _, res := range resources {
@@ -205,11 +204,10 @@ func (repo *secretRepository) GetAll(ctx context.Context) ([]models.SecretItemIn
 	return secretItems, nil
 }
 
-func NewSecretRepository(db *gorm.DB, project models.ProjectSpec, namespace models.NamespaceSpec, hash models.ApplicationKey) *secretRepository {
+func NewSecretRepository(db *gorm.DB, project models.ProjectSpec, hash models.ApplicationKey) *secretRepository {
 	return &secretRepository{
-		db:        db,
-		project:   project,
-		namespace: namespace,
-		hash:      hash,
+		db:      db,
+		project: project,
+		hash:    hash,
 	}
 }

@@ -119,10 +119,7 @@ Use base64 flag if the value has been encoded.
 }
 
 func secretListSubCommand(l log.Logger, conf config.Provider) *cli.Command {
-	var (
-		projectName   string
-		namespaceName string
-	)
+	var projectName string
 
 	secretListCmd := &cli.Command{
 		Use:     "list",
@@ -131,7 +128,6 @@ func secretListSubCommand(l log.Logger, conf config.Provider) *cli.Command {
 		Long:    `This operation shows the secrets for project.`,
 	}
 	secretListCmd.Flags().StringVarP(&projectName, "project", "p", conf.GetProject().Name, "Project name of optimus managed repository")
-	secretListCmd.Flags().StringVarP(&namespaceName, "namespace", "n", conf.GetNamespace().Name, "Namespace of deployee")
 
 	secretListCmd.RunE = func(cmd *cli.Command, args []string) error {
 
@@ -281,7 +277,7 @@ func listSecret(l log.Logger, conf config.Provider, req *pb.ListSecretsRequest) 
 	updateSecretResponse, err := runtime.ListSecrets(secretRequestTimeout, req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			l.Info("secret update took too long, timing out")
+			l.Error(coloredError("Secret listing took too long, timing out"))
 		}
 		return errors.Wrap(err, "request failed for listing secrets")
 	}
