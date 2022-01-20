@@ -10,6 +10,7 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/odpf/salt/log"
+	"github.com/olekukonko/tablewriter"
 	"github.com/pkg/errors"
 	cli "github.com/spf13/cobra"
 	"google.golang.org/grpc"
@@ -262,7 +263,7 @@ func listSecret(l log.Logger, conf config.Provider, req *pb.ListSecretsRequest) 
 	var conn *grpc.ClientConn
 	if conn, err = createConnection(dialTimeoutCtx, conf.GetHost()); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			l.Info("can't reach optimus service")
+			l.Error(ErrServerNotReachable(conf.GetHost()).Error())
 		}
 		return err
 	}
@@ -271,10 +272,12 @@ func listSecret(l log.Logger, conf config.Provider, req *pb.ListSecretsRequest) 
 	secretRequestTimeout, secretRequestCancel := context.WithTimeout(context.Background(), secretTimeout)
 	defer secretRequestCancel()
 
-	l.Info("please wait...")
+	spinner := NewProgressBar()
+	spinner.Start("please wait...")
 	runtime := pb.NewRuntimeServiceClient(conn)
 
-	updateSecretResponse, err := runtime.ListSecrets(secretRequestTimeout, req)
+	listSecretsResponse, err := runtime.ListSecrets(secretRequestTimeout, req)
+	spinner.Stop()
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			l.Error(coloredError("Secret listing took too long, timing out"))
@@ -282,10 +285,39 @@ func listSecret(l log.Logger, conf config.Provider, req *pb.ListSecretsRequest) 
 		return errors.Wrap(err, "request failed for listing secrets")
 	}
 
-	fmt.Println("Name\t\t| Namespace\t\t| Digest\t\t| Updated At")
-	for _, secret := range updateSecretResponse.Secrets {
-		fmt.Printf("%s\t%s\t%s\t%s\n", secret.Name, secret.Namespace, secret.Digest, secret.UpdatedAt)
+	if len(listSecretsResponse.Secrets) == 0 {
+		l.Info(coloredNotice("No secrets were found in %s project.", req.ProjectName))
+	} else {
+		printListOfSecrets(l, req.ProjectName, listSecretsResponse)
 	}
 
 	return nil
+}
+
+func printListOfSecrets(l log.Logger, projectName string, listSecretsResponse *pb.ListSecretsResponse) {
+	l.Info(coloredNotice("Secrets for project: %s", projectName))
+	table := tablewriter.NewWriter(l.Writer())
+	table.SetBorder(false)
+	table.SetHeader([]string{
+		"Name",
+		"Digest",
+		"Namespace",
+		"Date",
+	})
+
+	table.SetAlignment(tablewriter.ALIGN_CENTER)
+	for _, secret := range listSecretsResponse.Secrets {
+		namespace := "*"
+		if secret.Namespace != "" {
+			namespace = secret.Namespace
+		}
+		table.Append([]string{
+			secret.Name,
+			secret.Digest,
+			namespace,
+			secret.UpdatedAt.AsTime().Format(time.RFC3339),
+		})
+	}
+	table.Render()
+	l.Info("")
 }

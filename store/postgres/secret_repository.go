@@ -189,7 +189,7 @@ func (repo *secretRepository) GetAll(ctx context.Context) ([]models.SecretItemIn
 	var secretItems []models.SecretItemInfo
 	var resources []Secret
 	if err := repo.db.WithContext(ctx).Preload("Namespace").
-		Joins("JOIN namespace ON secret.namespace_id = namespace.id").
+		Joins("LEFT JOIN namespace ON secret.namespace_id = namespace.id").
 		Where("secret.project_id = ?", repo.project.ID).Find(&resources).Error; err != nil {
 		return secretItems, err
 	}
